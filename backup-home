@@ -2,8 +2,6 @@
 set -e
 set -o pipefail
 
-date -Is >>/tmp/backup-home-times
-
 BACKUP_MOUNT_PT=/var/backups
 BACKUP_PREFIX=${BACKUP_MOUNT_PT}/home-
 BACKUP_PREFIX_LEN=$(echo ${BACKUP_PREFIX} |wc -c)
