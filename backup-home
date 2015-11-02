@@ -6,23 +6,30 @@ BACKUP_MOUNT_PT=/var/backups
 BACKUP_PREFIX=${BACKUP_MOUNT_PT}/home-
 BACKUP_PREFIX_LEN=$(echo ${BACKUP_PREFIX} |wc -c)
 
-function timestamps_with_normalized() {
-    (ls -d ${BACKUP_PREFIX}* |
+function all_timestamps_with_normalized() {
+    ls -d ${BACKUP_PREFIX}* |
     cut -c${BACKUP_PREFIX_LEN}- |
     tr . : |
-    awk '{
-        ret = ("date -u -Iseconds --date=" $0) | getline normalized_date
-        if (ret != 1) exit 1
-        print normalized_date, $0
-    }' |
-    tr : . |
+    xargs -i date -u --date={} "+%FT%T%z {}" |
+    tr : .
+}
+
+function last_timestamp_with_normalized() {
+    (all_timestamps_with_normalized |
     sort -r |
     head -1) || [ $? = 141 ]  # SIGPIPE ok because head closes the pipe early
 }
 
+function old_timestamps() {
+  OLDFENCE=$(date -u --date='1 week ago' "+%FT%T%z ~" |tr : .)
+  (echo $OLDFENCE; all_timestamps_with_normalized) |
+  LC_ALL=C sort |
+  sed '/ ~$/,$d'
+}
+
 if [ ! -v FORCE ]; then
-    FENCE_NORMALIZED=$(date -u -Iseconds --date='1 hour ago' |tr : .)
-    LAST_BACKUP_NORMALIZED=$(timestamps_with_normalized |cut -d' ' -f1)
+    FENCE_NORMALIZED=$(date -u --date='1 hour ago' "+%FT%T%z" |tr : .)
+    LAST_BACKUP_NORMALIZED=$(last_timestamp_with_normalized |cut -d' ' -f1)
 
     if [[ "${FENCE_NORMALIZED}" < "${LAST_BACKUP_NORMALIZED}" ]]; then
         if [ -v VERBOSE ]; then
@@ -32,7 +39,7 @@ if [ ! -v FORCE ]; then
     fi
 fi
 
-PREV_TIMESTAMP=$(timestamps_with_normalized |cut -d' ' -f2)
+PREV_TIMESTAMP=$(last_timestamp_with_normalized |cut -d' ' -f2)
 
 lvcreate -l 100%FREE -n home-snapshot -s weessd/home
 mount -o ro /dev/mapper/weessd-home--snapshot /mnt/snapshot
@@ -44,11 +51,20 @@ function make_backups_readonly() {
 }
 trap make_backups_readonly 1 2 3 15 ERR
 mount -o remount,rw "${BACKUP_MOUNT_PT}"
+
 rsync -a --delete \
     --filter=":n .backup-rules" \
     --link-dest="${BACKUP_PREFIX}${PREV_TIMESTAMP}" \
     /mnt/snapshot/ \
     "${BACKUP_PREFIX}${TIMESTAMP}"
+
+old_timestamps |
+sort |
+sed 's,T[^ ]*,,' |
+awk 'BEGIN { prev = "" } $1 == prev { print } { prev = $1 }' |
+cut -d' ' -f2 |
+xargs -i rm -rf "$BACKUP_PREFIX"{}
+
 make_backups_readonly
 trap - 1 2 3 15 ERR
 
