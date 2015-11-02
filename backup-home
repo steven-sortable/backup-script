@@ -1,0 +1,58 @@
+#!/bin/bash -E
+set -e
+set -o pipefail
+
+date -Is >>/tmp/backup-home-times
+
+BACKUP_MOUNT_PT=/var/backups
+BACKUP_PREFIX=${BACKUP_MOUNT_PT}/home-
+BACKUP_PREFIX_LEN=$(echo ${BACKUP_PREFIX} |wc -c)
+
+function timestamps_with_normalized() {
+    (ls -d ${BACKUP_PREFIX}* |
+    cut -c${BACKUP_PREFIX_LEN}- |
+    tr . : |
+    awk '{
+        ret = ("date -u -Iseconds --date=" $0) | getline normalized_date
+        if (ret != 1) exit 1
+        print normalized_date, $0
+    }' |
+    tr : . |
+    sort -r |
+    head -1) || [ $? = 141 ]  # SIGPIPE ok because head closes the pipe early
+}
+
+if [ ! -v FORCE ]; then
+    FENCE_NORMALIZED=$(date -u -Iseconds --date='1 hour ago' |tr : .)
+    LAST_BACKUP_NORMALIZED=$(timestamps_with_normalized |cut -d' ' -f1)
+
+    if [[ "${FENCE_NORMALIZED}" < "${LAST_BACKUP_NORMALIZED}" ]]; then
+        if [ -v VERBOSE ]; then
+            echo "not backing up: a recent backup was made at ${LAST_BACKUP_NORMALIZED}"
+        fi
+        exit 0
+    fi
+fi
+
+PREV_TIMESTAMP=$(timestamps_with_normalized |cut -d' ' -f2)
+
+lvcreate -l 100%FREE -n home-snapshot -s weessd/home
+mount -o ro /dev/mapper/weessd-home--snapshot /mnt/snapshot
+
+TIMESTAMP=$(date +%FT%H.%M%:::z)
+
+function make_backups_readonly() {
+    mount -o remount,ro "${BACKUP_MOUNT_PT}"
+}
+trap make_backups_readonly 1 2 3 15 ERR
+mount -o remount,rw "${BACKUP_MOUNT_PT}"
+rsync -a --delete \
+    --filter=":n .backup-rules" \
+    --link-dest="${BACKUP_PREFIX}${PREV_TIMESTAMP}" \
+    /mnt/snapshot/ \
+    "${BACKUP_PREFIX}${TIMESTAMP}"
+make_backups_readonly
+trap - 1 2 3 15 ERR
+
+umount /mnt/snapshot
+lvremove -f weessd/home-snapshot
