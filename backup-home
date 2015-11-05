@@ -4,11 +4,11 @@ set -o pipefail
 
 BACKUP_MOUNT_PT=/var/backups
 BACKUP_PREFIX=${BACKUP_MOUNT_PT}/home-
-BACKUP_PREFIX_LEN=$(echo ${BACKUP_PREFIX} |wc -c)
+BACKUP_AFTER_PREFIX=$(echo ${BACKUP_PREFIX} |wc -c)
 
 function all_timestamps_with_normalized() {
     ls -d ${BACKUP_PREFIX}* |
-    cut -c${BACKUP_PREFIX_LEN}- |
+    cut -c${BACKUP_AFTER_PREFIX}- |
     tr . : |
     xargs -i date -u --date={} "+%FT%T%z {}" |
     tr : .
