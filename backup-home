@@ -21,7 +21,7 @@ function last_timestamp_with_normalized() {
 }
 
 function old_timestamps() {
-  OLDFENCE=$(date -u --date='1 week ago' "+%FT%T%z ~" |tr : .)
+  OLDFENCE=$(date -u --date="$1" "+%FT%T%z ~" |tr : .)
   (echo $OLDFENCE; all_timestamps_with_normalized) |
   LC_ALL=C sort |
   sed '/ ~$/,$d'
@@ -58,9 +58,16 @@ rsync -a --delete \
     /mnt/snapshot/ \
     "${BACKUP_PREFIX}${TIMESTAMP}"
 
-old_timestamps |
+old_timestamps "1 week ago" |
 sort |
 sed 's,T[^ ]*,,' |
+awk 'BEGIN { prev = "" } $1 == prev { print } { prev = $1 }' |
+cut -d' ' -f2 |
+xargs -i rm -rf "$BACKUP_PREFIX"{}
+
+old_timestamps "4 weeks ago" |
+sort |
+sed 's,.T[^ ]*,,' |
 awk 'BEGIN { prev = "" } $1 == prev { print } { prev = $1 }' |
 cut -d' ' -f2 |
 xargs -i rm -rf "$BACKUP_PREFIX"{}
