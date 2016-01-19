@@ -72,6 +72,13 @@ awk 'BEGIN { prev = "" } $1 == prev { print } { prev = $1 }' |
 cut -d' ' -f2 |
 xargs -i rm -rf "$BACKUP_PREFIX"{}
 
+old_timestamps "3 months ago" |
+sort |
+sed 's,..T[^ ]*,,' |
+awk 'BEGIN { prev = "" } $1 == prev { print } { prev = $1 }' |
+cut -d' ' -f2 |
+xargs -i rm -rf "$BACKUP_PREFIX"{}
+
 make_backups_readonly
 trap - 1 2 3 15 ERR
 
